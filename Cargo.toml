@@ -1,0 +1,22 @@
+[package]
+name = "mongo-embedded"
+version = "0.1.0"
+edition = "2021"
+description = "A library to download, extract, and convert MongoDB Community Edition into an embedded server."
+license = "MIT"
+repository = "https://github.com/adhil/mongo-embedded"
+keywords = ["mongodb", "embedded", "database", "testing"]
+categories = ["database", "development-tools::testing"]
+readme = "README.md"
+
+[dependencies]
+anyhow = "1.0.100"
+directories = "6.0.0"
+flate2 = "1.1.5"
+futures-util = "0.3.31"
+hex = "0.4.3"
+reqwest = { version = "0.12.26", features = ["blocking", "json"] }
+sha2 = "0.10.9"
+tar = "0.4.44"
+tokio = { version = "1.48.0", features = ["full"] }
+zip = "7.0.0"
