@@ -10,12 +10,20 @@ It handles:
 
 ## Usage
 
-Add this to your `Cargo.toml`:
+### Installation
+
+Run the following command in your project directory:
+
+```bash
+cargo add mongo-embedded
+```
+
+Or add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 mongo-embedded = "0.1.0"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["full"] } # Required for the example below
 ```
 
 ### Example
