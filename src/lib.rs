@@ -47,6 +47,11 @@ impl MongoEmbedded {
         self
     }
 
+    pub fn is_installed(&self) -> bool {
+        let extract_target = self.extract_path.join(self.version.as_str());
+        extract_target.exists()
+    }
+
     pub async fn start(&self) -> Result<MongoProcess> {
         self.start_with_progress(|_| {}).await
     }
