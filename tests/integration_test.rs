@@ -24,3 +24,34 @@ async fn test_download_and_start() {
     process.kill().expect("Failed to kill MongoDB process");
     println!("MongoDB stopped.");
 }
+
+#[tokio::test]
+async fn test_socket_bind() {
+    let version = "7.0.2";
+    let mongo = MongoEmbedded::new(version).unwrap();
+    
+    // Use a random temporary path for the socket
+    let socket_path = std::env::temp_dir().join("test_mongo.sock");
+    if socket_path.exists() {
+        std::fs::remove_file(&socket_path).unwrap();
+    }
+    
+    let mongo = mongo.set_bind_ip(socket_path.to_str().unwrap());
+    
+    println!("Starting MongoDB with socket: {:?}", socket_path);
+    let mut process = mongo.start().await.expect("Failed to start MongoDB");
+    
+    // Wait for startup
+    sleep(Duration::from_secs(5)).await;
+    
+    // Verify socket exists
+    assert!(socket_path.exists(), "Socket file should exist");
+    
+    println!("Verified socket existence. Stopping MongoDB...");
+    process.kill().expect("Failed to kill MongoDB process");
+    
+    // Cleanup
+    if socket_path.exists() {
+        std::fs::remove_file(&socket_path).unwrap();
+    }
+}

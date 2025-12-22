@@ -65,6 +65,32 @@ async fn main() {
 
     process.kill().expect("Failed to kill MongoDB process");
 }
+    process.kill().expect("Failed to kill MongoDB process");
+}
+```
+
+### Check if Installed
+
+You can check if the MongoDB binary for the specified version is already downloaded and extracted:
+
+```rust
+let mongo = MongoEmbedded::new("7.0.2").unwrap();
+if mongo.is_installed() {
+    println!("MongoDB is ready to start");
+}
+```
+
+### Unix Sockets / Custom Bind IP
+
+You can configure the bind IP address. This is useful for security (binding only to localhost) or for using Unix domain sockets (on Unix-like systems) to avoid opening a TCP port.
+
+```rust
+// Use a Unix socket
+let mongo = MongoEmbedded::new("7.0.2").unwrap()
+    .set_bind_ip("/tmp/mongodb-27017.sock");
+
+// Or bind to a specific IP
+// let mongo = mongo.set_bind_ip("127.0.0.1"); 
 ```
 
 ## Configuration

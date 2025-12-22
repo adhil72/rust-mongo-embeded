@@ -18,6 +18,7 @@ pub struct MongoEmbedded {
     pub extract_path: PathBuf,
     pub db_path: PathBuf,
     pub port: u16,
+    pub bind_ip: String,
 }
 
 impl MongoEmbedded {
@@ -34,11 +35,17 @@ impl MongoEmbedded {
             extract_path: cache_dir.join("extracted"),
             db_path: data_dir.join("db"),
             port: 27017,
+            bind_ip: "127.0.0.1".to_string(),
         })
     }
 
     pub fn set_port(mut self, port: u16) -> Self {
         self.port = port;
+        self
+    }
+
+    pub fn set_bind_ip(mut self, bind_ip: &str) -> Self {
+        self.bind_ip = bind_ip.to_string();
         self
     }
 
@@ -77,7 +84,7 @@ impl MongoEmbedded {
 
         let os = get_os()?;
         
-        MongoProcess::start(&extract_target, self.port, &self.db_path, &os)
+        MongoProcess::start(&extract_target, self.port, &self.db_path, &os, &self.bind_ip)
     }
 }
 

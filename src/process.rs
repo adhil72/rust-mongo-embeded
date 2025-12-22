@@ -14,6 +14,7 @@ impl MongoProcess {
         port: u16,
         db_path: &Path,
         os: &Os,
+        bind_ip: &str,
     ) -> Result<Self> {
         let binary_name = match os {
             Os::Windows => "mongod.exe",
@@ -42,7 +43,7 @@ impl MongoProcess {
             .arg("--dbpath")
             .arg(db_path)
             .arg("--bind_ip")
-            .arg("127.0.0.1")
+            .arg(bind_ip)
             .spawn()?;
 
         Ok(Self { child, db_path: db_path.to_path_buf() })
