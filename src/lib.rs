@@ -6,9 +6,11 @@ use anyhow::Result;
 use std::path::PathBuf;
 use directories::ProjectDirs;
 
-use crate::downloader::{get_download_url, download_file, get_os};
+use crate::downloader::{get_download_url, download_file_with_callback, get_os};
 use crate::extractor::extract;
 use crate::process::MongoProcess;
+
+pub use crate::downloader::DownloadProgress;
 
 pub struct MongoEmbedded {
     pub version: String,
@@ -46,6 +48,13 @@ impl MongoEmbedded {
     }
 
     pub async fn start(&self) -> Result<MongoProcess> {
+        self.start_with_progress(|_| {}).await
+    }
+
+    pub async fn start_with_progress<F>(&self, callback: F) -> Result<MongoProcess>
+    where
+        F: FnMut(DownloadProgress),
+    {
         let mongo_url = get_download_url(&self.version)?;
         let download_target = self.download_path.join(&mongo_url.filename);
 
@@ -53,19 +62,17 @@ impl MongoEmbedded {
             if !self.download_path.exists() {
                 std::fs::create_dir_all(&self.download_path)?;
             }
-            // println!("Downloading MongoDB from {}", mongo_url.url);
-            download_file(&mongo_url.url, &download_target).await?;
+            download_file_with_callback(&mongo_url.url, &download_target, callback).await?;
         }
 
         let extract_target = self.extract_path.join(self.version.as_str());
         if !extract_target.exists() {
-            // println!("Extracting MongoDB to {:?}", extract_target);
             extract(&download_target, &extract_target)?;
         }
 
         let os = get_os()?;
         
-        // println!("Starting MongoDB on port {}", self.port);
         MongoProcess::start(&extract_target, self.port, &self.db_path, &os)
     }
 }
+

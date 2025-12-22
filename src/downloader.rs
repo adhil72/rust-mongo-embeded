@@ -89,24 +89,50 @@ pub fn get_download_url(version: &str) -> Result<MongoUrl> {
 }
 
 
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+    pub percentage: Option<f32>,
+}
+
 pub async fn download_file(url: &str, destination: &std::path::Path) -> Result<()> {
+    download_file_with_callback(url, destination, |_| {}).await
+}
+
+pub async fn download_file_with_callback<F>(
+    url: &str,
+    destination: &std::path::Path,
+    mut callback: F,
+) -> Result<()>
+where
+    F: FnMut(DownloadProgress),
+{
     use std::io::Write;
     use std::fs::File;
 
-    let mut response = reqwest::get(url).await?;
-    
-    // Use a temporary file
+    let response = reqwest::get(url).await?;
+    let total = response.content_length();
+
     let mut part_path = destination.to_path_buf();
     part_path.set_extension("part");
 
     let mut file = File::create(&part_path)?;
-    
-    while let Some(chunk) = response.chunk().await? {
+    let mut downloaded: u64 = 0;
+
+    let mut stream = response;
+    while let Some(chunk) = stream.chunk().await? {
         file.write_all(&chunk)?;
+        downloaded += chunk.len() as u64;
+
+        let percentage = total.map(|t| (downloaded as f32 / t as f32) * 100.0);
+        callback(DownloadProgress {
+            downloaded,
+            total,
+            percentage,
+        });
     }
-    
-    // Rename to final destination
+
     std::fs::rename(part_path, destination)?;
-    
+
     Ok(())
 }

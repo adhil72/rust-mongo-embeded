@@ -22,7 +22,7 @@ Or add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-mongo-embedded = "0.1.1"
+mongo-embedded = "0.1.2"
 tokio = { version = "1.0", features = ["full"] } # Required for the example below
 ```
 
@@ -34,23 +34,35 @@ use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() {
-    // fastdl.mongodb.org version
-    let version = "7.0.2"; 
-    
-    // Initialize
-    let mongo = MongoEmbedded::new(version).unwrap()
-        .set_port(12345); // Optional, default is 27017
+    let mongo = MongoEmbedded::new("7.0.2").unwrap()
+        .set_port(12345);
 
-    // Start
-    println!("Starting MongoDB...");
     let mut process = mongo.start().await.expect("Failed to start MongoDB");
     
-    // Your DB operations here...
     // MongoDB is running at mongodb://127.0.0.1:12345/
 
     sleep(Duration::from_secs(5)).await;
-    
-    // Stop
+    process.kill().expect("Failed to kill MongoDB process");
+}
+```
+
+### With Download Progress
+
+```rust
+use mongo_embedded::{MongoEmbedded, DownloadProgress};
+
+#[tokio::main]
+async fn main() {
+    let mongo = MongoEmbedded::new("7.0.2").unwrap();
+
+    let mut process = mongo.start_with_progress(|progress: DownloadProgress| {
+        if let Some(pct) = progress.percentage {
+            println!("Downloading: {:.1}%", pct);
+        } else {
+            println!("Downloaded: {} bytes", progress.downloaded);
+        }
+    }).await.expect("Failed to start MongoDB");
+
     process.kill().expect("Failed to kill MongoDB process");
 }
 ```
