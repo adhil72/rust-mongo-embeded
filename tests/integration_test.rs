@@ -6,16 +6,22 @@ async fn test_download_and_start() {
     // Use a specific version. 6.0.4 is relatively recent and stable.
     // 7.0.2 is also good.
     let version = "7.0.2";
-    let mongo = MongoEmbedded::new(version).unwrap();
+    let mongo = MongoEmbedded::new(version).unwrap()
+        .set_credentials("test", "test");
     
-    // Use a custom port to avoid conflicts
+    // Use a custom port and db path to avoid conflicts
     let port = 12345;
-    let mongo = mongo.set_port(port);
+    let temp_dir = std::env::temp_dir().join("mongo_test_db_auth");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).unwrap();
+    }
+    let mongo = mongo.set_port(port).set_db_path(temp_dir.clone());
 
     println!("Starting MongoDB...");
     let mut process = mongo.start().await.expect("Failed to start MongoDB");
     
     println!("MongoDB started successfully!");
+    println!("Connection string: {}", process.connection_string);
     
     // Let it run for a bit
     sleep(Duration::from_secs(5)).await;
@@ -37,6 +43,13 @@ async fn test_socket_bind() {
     }
     
     let mongo = mongo.set_bind_ip(socket_path.to_str().unwrap());
+
+    // Use a custom db path to avoid conflicts
+    let temp_db_dir = std::env::temp_dir().join("mongo_test_db_socket");
+    if temp_db_dir.exists() {
+        std::fs::remove_dir_all(&temp_db_dir).unwrap();
+    }
+    let mongo = mongo.set_db_path(temp_db_dir.clone());
     
     println!("Starting MongoDB with socket: {:?}", socket_path);
     let mut process = mongo.start().await.expect("Failed to start MongoDB");

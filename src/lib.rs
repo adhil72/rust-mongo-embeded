@@ -17,6 +17,8 @@ pub enum InitStatus {
     ValidatingInstallation,
     Downloading,
     DownloadProgress(DownloadProgress),
+    SettingUpUser,
+    VerifyingCredentials,
     DBInitialized,
 }
 
@@ -27,6 +29,8 @@ pub struct MongoEmbedded {
     pub db_path: PathBuf,
     pub port: u16,
     pub bind_ip: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
 }
 
 
@@ -45,6 +49,8 @@ impl MongoEmbedded {
             db_path: data_dir.join("db"),
             port: 27017,
             bind_ip: "127.0.0.1".to_string(),
+            username: None,
+            password: None,
         })
     }
 
@@ -60,6 +66,12 @@ impl MongoEmbedded {
 
     pub fn set_db_path(mut self, path: PathBuf) -> Self {
         self.db_path = path;
+        self
+    }
+
+    pub fn set_credentials(mut self, username: &str, password: &str) -> Self {
+        self.username = Some(username.to_string());
+        self.password = Some(password.to_string());
         self
     }
 
@@ -98,7 +110,132 @@ impl MongoEmbedded {
 
         let os = get_os()?;
         
-        let process = MongoProcess::start(&extract_target, self.port, &self.db_path, &os, &self.bind_ip)?;
+        // Calculate initial connection string for readiness check
+        let uri = if self.bind_ip.contains('/') || self.bind_ip.ends_with(".sock") {
+            // Assume unix socket
+            // Minimal URL encoding for path, replacing / with %2F. 
+            // This is required for the rust mongodb driver to recognize it as a socket.
+            // Note: When using sockets with mongodb crate, we often need to ensure the host is just the encoded path.
+            let encoded = self.bind_ip.replace("/", "%2F");
+            format!("mongodb://{}/?directConnection=true", encoded)
+        } else {
+            format!("mongodb://{}:{}/?directConnection=true", self.bind_ip, self.port)
+        };
+
+        // Start process with auth flag if credentials are requested
+        let auth_enabled = self.username.is_some() && self.password.is_some();
+        let mut process = MongoProcess::start(&extract_target, self.port, &self.db_path, &os, &self.bind_ip, auth_enabled, uri.clone())?;
+        
+        // Need to wait for it to be ready
+        // We can try to connect
+        let mut client_options = mongodb::options::ClientOptions::parse(&uri).await?;
+        client_options.connect_timeout = Some(std::time::Duration::from_secs(2));
+        client_options.server_selection_timeout = Some(std::time::Duration::from_secs(2));
+
+        // Simple loop to wait for readiness
+        let mut connected = false;
+        let start = std::time::Instant::now();
+        println!("DEBUG: Waiting for MongoDB to start at {}", uri);
+        while start.elapsed() < std::time::Duration::from_secs(30) {
+            let client = mongodb::Client::with_options(client_options.clone())?;
+            match client.list_database_names(None, None).await {
+                Ok(_) => {
+                    connected = true;
+                    break;
+                }
+                Err(e) => {
+                    println!("DEBUG: Connection attempt failed: {:?}", e);
+                    // If unauthorized error, it means we are connected but need auth, which is fine for readiness check
+                    // "Unauthorized" usually is error code 13
+                    match *e.kind {
+                         mongodb::error::ErrorKind::Command(ref cmd_err) => {
+                             if cmd_err.code == 51 || cmd_err.code == 13 || cmd_err.code == 18 { // 51: UserAlreadyExists?, 13: Unauthorized, 18: AuthFailed
+                                 connected = true;
+                                 break;
+                             }
+                         },
+                         _ => {}
+                    }
+                }
+            }
+             
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+
+        if !connected {
+             println!("DEBUG: Timed out waiting for start.");
+             process.kill()?;
+             return Err(anyhow::anyhow!("Timed out waiting for MongoDB to start"));
+        }
+
+        if let (Some(username), Some(password)) = (&self.username, &self.password) {
+             callback(InitStatus::SettingUpUser);
+             let client = mongodb::Client::with_options(client_options.clone())?;
+
+             // Try to create user. This only works if localhost exception is active (no users)
+             use mongodb::bson::doc;
+             let db = client.database("admin");
+             let run_cmd = db.run_command(doc! {
+                "createUser": username,
+                "pwd": password,
+                "roles": [
+                    { "role": "root", "db": "admin" }
+                ]
+             }, None).await;
+
+             match run_cmd {
+                Ok(_) => {
+                    // Created user successfully
+                },
+                Err(e) => {
+                     // Check if error is unauthorized or "already exists"
+                     let kind = &*e.kind;
+                     let needs_verify;
+                     if let mongodb::error::ErrorKind::Command(cmd_err) = kind {
+                         if cmd_err.code == 51 { // UserAlreadyExists
+                             needs_verify = true;
+                         } else if cmd_err.code == 13 { // Unauthorized
+                             needs_verify = true;
+                         } else {
+                             // Unexpected error, maybe fail or try verify
+                             needs_verify = true; 
+                         }
+                     } else {
+                         needs_verify = true; // Connection error or other?
+                     }
+
+                     if needs_verify {
+                         callback(InitStatus::VerifyingCredentials);
+                         // Try to authenticate
+                         let mut auth_opts = client_options.clone();
+                         auth_opts.credential = Some(mongodb::options::Credential::builder()
+                            .username(username.clone())
+                            .password(password.clone())
+                            .source("admin".to_string())
+                            .build());
+                         
+                         let auth_client = mongodb::Client::with_options(auth_opts)?;
+                         // Verify by running a command that requires auth
+                         if let Err(auth_err) = auth_client.database("admin").run_command(doc! { "ping": 1 }, None).await {
+                             process.kill()?;
+                             return Err(anyhow::anyhow!("Authentication failed or invalid credentials provided: {}", auth_err));
+                         }
+                     }
+                }
+             }
+
+             // Update connection string to include credentials
+             let final_uri;
+             if self.bind_ip.contains('/') || self.bind_ip.ends_with(".sock") {
+                 let encoded = self.bind_ip.replace("/", "%2F");
+                 // For sockets, credentials go in the beginning
+                 final_uri = format!("mongodb://{}:{}@{}", username, password, encoded);
+             } else {
+                 final_uri = format!("mongodb://{}:{}@{}:{}/", username, password, self.bind_ip, self.port);
+             }
+             process.connection_string = final_uri;
+        }
+
         callback(InitStatus::DBInitialized);
         Ok(process)
     }

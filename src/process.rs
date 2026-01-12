@@ -5,6 +5,7 @@ use crate::downloader::Os;
 
 pub struct MongoProcess {
     child: Child,
+    pub connection_string: String,
 }
 
 impl MongoProcess {
@@ -14,6 +15,8 @@ impl MongoProcess {
         db_path: &Path,
         os: &Os,
         bind_ip: &str,
+        auth: bool,
+        connection_string: String,
     ) -> Result<Self> {
         let binary_name = match os {
             Os::Windows => "mongod.exe",
@@ -36,16 +39,32 @@ impl MongoProcess {
             std::fs::create_dir_all(db_path)?;
         }
 
-        let child = Command::new(binary_path)
+        let mut command = Command::new(binary_path);
+        command
             .arg("--port")
             .arg(port.to_string())
             .arg("--dbpath")
             .arg(db_path)
             .arg("--bind_ip")
-            .arg(bind_ip)
-            .spawn()?;
+            .arg(bind_ip);
+        
+        if auth {
+            command.arg("--auth");
+        }
 
-        Ok(Self { child })
+        let log_path = match os {
+            Os::Windows => "NUL",
+            _ => "/dev/null",
+        };
+
+        command
+            .arg("--quiet")
+            .arg("--logpath")
+            .arg(log_path);
+
+        let child = command.spawn()?;
+
+        Ok(Self { child, connection_string })
     }
 
     pub fn kill(&mut self) -> Result<()> {
