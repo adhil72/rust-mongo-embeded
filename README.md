@@ -22,7 +22,7 @@ Or add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-mongo-embedded = "0.1.3"
+mongo-embedded = "0.1.5"
 tokio = { version = "1.0", features = ["full"] } # Required for the example below
 ```
 

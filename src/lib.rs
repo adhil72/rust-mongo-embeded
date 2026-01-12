@@ -12,6 +12,14 @@ use crate::process::MongoProcess;
 
 pub use crate::downloader::DownloadProgress;
 
+pub enum InitStatus {
+    CheckingDB,
+    ValidatingInstallation,
+    Downloading,
+    DownloadProgress(DownloadProgress),
+    DBInitialized,
+}
+
 pub struct MongoEmbedded {
     pub version: String,
     pub download_path: PathBuf,
@@ -20,6 +28,7 @@ pub struct MongoEmbedded {
     pub port: u16,
     pub bind_ip: String,
 }
+
 
 impl MongoEmbedded {
     pub fn new(version: &str) -> Result<Self> {
@@ -63,18 +72,23 @@ impl MongoEmbedded {
         self.start_with_progress(|_| {}).await
     }
 
-    pub async fn start_with_progress<F>(&self, callback: F) -> Result<MongoProcess>
+    pub async fn start_with_progress<F>(&self, mut callback: F) -> Result<MongoProcess>
     where
-        F: FnMut(DownloadProgress),
+        F: FnMut(InitStatus),
     {
+        callback(InitStatus::CheckingDB);
         let mongo_url = get_download_url(&self.version)?;
         let download_target = self.download_path.join(&mongo_url.filename);
 
+        callback(InitStatus::ValidatingInstallation);
         if !download_target.exists() {
             if !self.download_path.exists() {
                 std::fs::create_dir_all(&self.download_path)?;
             }
-            download_file_with_callback(&mongo_url.url, &download_target, callback).await?;
+            callback(InitStatus::Downloading);
+            download_file_with_callback(&mongo_url.url, &download_target, |progress| {
+                callback(InitStatus::DownloadProgress(progress));
+            }).await?;
         }
 
         let extract_target = self.extract_path.join(self.version.as_str());
@@ -84,7 +98,9 @@ impl MongoEmbedded {
 
         let os = get_os()?;
         
-        MongoProcess::start(&extract_target, self.port, &self.db_path, &os, &self.bind_ip)
+        let process = MongoProcess::start(&extract_target, self.port, &self.db_path, &os, &self.bind_ip)?;
+        callback(InitStatus::DBInitialized);
+        Ok(process)
     }
 }
 

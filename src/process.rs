@@ -5,7 +5,6 @@ use crate::downloader::Os;
 
 pub struct MongoProcess {
     child: Child,
-    db_path: PathBuf,
 }
 
 impl MongoProcess {
@@ -46,7 +45,7 @@ impl MongoProcess {
             .arg(bind_ip)
             .spawn()?;
 
-        Ok(Self { child, db_path: db_path.to_path_buf() })
+        Ok(Self { child })
     }
 
     pub fn kill(&mut self) -> Result<()> {
